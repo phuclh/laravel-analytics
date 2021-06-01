@@ -12,19 +12,19 @@ class AnalyticsServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('laravel-analytics')
-            ->hasConfigFile();
+            ->hasConfigFile('google-analytics');
     }
 
     public function registeringPackage(): void
     {
         $this->app->bind(AnalyticsClient::class, function () {
-            $analyticsConfig = config('analytics');
+            $analyticsConfig = config('google-analytics');
 
             return AnalyticsClientFactory::createForConfig($analyticsConfig);
         });
 
         $this->app->bind(Analytics::class, function () {
-            $analyticsConfig = config('analytics');
+            $analyticsConfig = config('google-analytics');
 
             $this->guardAgainstInvalidConfiguration($analyticsConfig);
 
@@ -38,16 +38,12 @@ class AnalyticsServiceProvider extends PackageServiceProvider
 
     protected function guardAgainstInvalidConfiguration(array $analyticsConfig = null): void
     {
-        if (empty($analyticsConfig['view_id'])) {
-            throw InvalidConfiguration::viewIdNotSpecified();
+        if ($analyticsConfig['auth_type'] == 'service_account' && !file_exists($analyticsConfig['connections']['service_account']['application_credentials'])) {
+            throw InvalidConfiguration::credentialsJsonDoesNotExist($analyticsConfig['connections']['service_account']['application_credentials']);
         }
 
-        if (is_array($analyticsConfig['service_account_credentials_json'])) {
-            return;
-        }
-
-        if (! file_exists($analyticsConfig['service_account_credentials_json'])) {
-            throw InvalidConfiguration::credentialsJsonDoesNotExist($analyticsConfig['service_account_credentials_json']);
+        if ($analyticsConfig['auth_type'] == 'oauth_json' && !file_exists($analyticsConfig['connections']['oauth_json']['auth_config'])) {
+            throw InvalidConfiguration::credentialsJsonDoesNotExist($analyticsConfig['connections']['oauth_json']['auth_config']);
         }
     }
 }

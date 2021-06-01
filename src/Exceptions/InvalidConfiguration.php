@@ -15,4 +15,11 @@ class InvalidConfiguration extends Exception
     {
         return new static("Could not find a credentials file at `{$path}`.");
     }
+
+    public static function oauthTypeNotSupported(): static
+    {
+        $supportedOauthTypes = array_keys(config('google-analytics.connections'));
+
+        return new static('Oauth type is not supported. Supported Oauth types are: ' . implode(', ', $supportedOauthTypes));
+    }
 }

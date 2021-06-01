@@ -4,8 +4,10 @@ namespace Spatie\Analytics;
 
 use Carbon\Carbon;
 use Google_Service_Analytics;
+use Google_Service_Analytics_GaData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Traits\Macroable;
+use Spatie\Analytics\Exceptions\InvalidConfiguration;
 
 class Analytics
 {
@@ -13,8 +15,19 @@ class Analytics
 
     public function __construct(
         protected AnalyticsClient $client,
-        protected string $viewId,
+        protected ?string $viewId = null,
     ) {
+    }
+
+    public function useAccessToken(string|array $accessToken): self
+    {
+        is_array($accessToken) && $accessToken = trim(json_encode($accessToken));
+
+        $this->client->setAccessToken($accessToken);
+
+        $this->client->getGoogleClient()->getCache()->clear();
+
+        return $this;
     }
 
     public function setViewId(string $viewId): self
@@ -24,7 +37,7 @@ class Analytics
         return $this;
     }
 
-    public function getViewId()
+    public function getViewId(): ?string
     {
         return $this->viewId;
     }
@@ -37,11 +50,11 @@ class Analytics
             ['dimensions' => 'ga:date,ga:pageTitle'],
         );
 
-        return collect($response['rows'] ?? [])->map(fn (array $dateRow) => [
-            'date' => Carbon::createFromFormat('Ymd', $dateRow[0]),
+        return collect($response['rows'] ?? [])->map(fn(array $dateRow) => [
+            'date'      => Carbon::createFromFormat('Ymd', $dateRow[0]),
             'pageTitle' => $dateRow[1],
-            'visitors' => (int) $dateRow[2],
-            'pageViews' => (int) $dateRow[3],
+            'visitors'  => (int)$dateRow[2],
+            'pageViews' => (int)$dateRow[3],
         ]);
     }
 
@@ -53,10 +66,10 @@ class Analytics
             ['dimensions' => 'ga:date'],
         );
 
-        return collect($response['rows'] ?? [])->map(fn (array $dateRow) => [
-            'date' => Carbon::createFromFormat('Ymd', $dateRow[0]),
-            'visitors' => (int) $dateRow[1],
-            'pageViews' => (int) $dateRow[2],
+        return collect($response['rows'] ?? [])->map(fn(array $dateRow) => [
+            'date'      => Carbon::createFromFormat('Ymd', $dateRow[0]),
+            'visitors'  => (int)$dateRow[1],
+            'pageViews' => (int)$dateRow[2],
         ]);
     }
 
@@ -66,16 +79,16 @@ class Analytics
             $period,
             'ga:pageviews',
             [
-                'dimensions' => 'ga:pagePath,ga:pageTitle',
-                'sort' => '-ga:pageviews',
+                'dimensions'  => 'ga:pagePath,ga:pageTitle',
+                'sort'        => '-ga:pageviews',
                 'max-results' => $maxResults,
             ],
         );
 
-        return collect($response['rows'] ?? [])->map(fn (array $pageRow) => [
-            'url' => $pageRow[0],
+        return collect($response['rows'] ?? [])->map(fn(array $pageRow) => [
+            'url'       => $pageRow[0],
             'pageTitle' => $pageRow[1],
-            'pageViews' => (int) $pageRow[2],
+            'pageViews' => (int)$pageRow[2],
         ]);
     }
 
@@ -85,15 +98,15 @@ class Analytics
             $period,
             'ga:pageviews',
             [
-                'dimensions' => 'ga:fullReferrer',
-                'sort' => '-ga:pageviews',
+                'dimensions'  => 'ga:fullReferrer',
+                'sort'        => '-ga:pageviews',
                 'max-results' => $maxResults,
             ],
         );
 
-        return collect($response['rows'] ?? [])->map(fn (array $pageRow) => [
-            'url' => $pageRow[0],
-            'pageViews' => (int) $pageRow[1],
+        return collect($response['rows'] ?? [])->map(fn(array $pageRow) => [
+            'url'       => $pageRow[0],
+            'pageViews' => (int)$pageRow[1],
         ]);
     }
 
@@ -107,9 +120,9 @@ class Analytics
             ],
         );
 
-        return collect($response->rows ?? [])->map(fn (array $userRow) => [
-            'type' => $userRow[0],
-            'sessions' => (int) $userRow[1],
+        return collect($response->rows ?? [])->map(fn(array $userRow) => [
+            'type'     => $userRow[0],
+            'sessions' => (int)$userRow[1],
         ]);
     }
 
@@ -120,13 +133,13 @@ class Analytics
             'ga:sessions',
             [
                 'dimensions' => 'ga:browser',
-                'sort' => '-ga:sessions',
+                'sort'       => '-ga:sessions',
             ],
         );
 
-        $topBrowsers = collect($response['rows'] ?? [])->map(fn (array $browserRow) => [
-            'browser' => $browserRow[0],
-            'sessions' => (int) $browserRow[1],
+        $topBrowsers = collect($response['rows'] ?? [])->map(fn(array $browserRow) => [
+            'browser'  => $browserRow[0],
+            'sessions' => (int)$browserRow[1],
         ]);
 
         if ($topBrowsers->count() <= $maxResults) {
@@ -141,7 +154,7 @@ class Analytics
         return $topBrowsers
             ->take($maxResults - 1)
             ->push([
-                'browser' => 'Others',
+                'browser'  => 'Others',
                 'sessions' => $topBrowsers->splice($maxResults - 1)->sum('sessions'),
             ]);
     }
@@ -151,12 +164,17 @@ class Analytics
      *
      * @param Period $period
      * @param string $metrics
-     * @param array  $others
+     * @param array $others
      *
-     * @return array|null
+     * @return Google_Service_Analytics_GaData|array|null
+     * @throws InvalidConfiguration
      */
-    public function performQuery(Period $period, string $metrics, array $others = []): array | null
+    public function performQuery(Period $period, string $metrics, array $others = []): Google_Service_Analytics_GaData|array|null
     {
+        if (is_null($this->viewId)) {
+            throw InvalidConfiguration::viewIdNotSpecified();
+        }
+
         return $this->client->performQuery(
             $this->viewId,
             $period->startDate,

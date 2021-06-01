@@ -3,7 +3,9 @@
 namespace Spatie\Analytics;
 
 use DateTimeInterface;
+use Google_Client;
 use Google_Service_Analytics;
+use Google_Service_Analytics_GaData;
 use Illuminate\Contracts\Cache\Repository;
 
 class AnalyticsClient
@@ -11,7 +13,7 @@ class AnalyticsClient
     protected int $cacheLifeTimeInMinutes = 0;
 
     public function __construct(
-        protected Google_Service_Analytics $service,
+        protected Google_Client $googleClient,
         protected Repository $cache,
     ) {
         //
@@ -33,9 +35,9 @@ class AnalyticsClient
      * @param string $metrics
      * @param array $others
      *
-     * @return array|null
+     * @return Google_Service_Analytics_GaData|array|null
      */
-    public function performQuery(string $viewId, DateTimeInterface $startDate, DateTimeInterface $endDate, string $metrics, array $others = []): array | null
+    public function performQuery(string $viewId, DateTimeInterface $startDate, DateTimeInterface $endDate, string $metrics, array $others = []): Google_Service_Analytics_GaData|array|null
     {
         $cacheName = $this->determineCacheName(func_get_args());
 
@@ -44,7 +46,7 @@ class AnalyticsClient
         }
 
         return $this->cache->remember($cacheName, $this->cacheLifeTimeInMinutes, function () use ($viewId, $startDate, $endDate, $metrics, $others) {
-            $result = $this->service->data_ga->get(
+            $result = $this->getAnalyticsService()->data_ga->get(
                 "ga:{$viewId}",
                 $startDate->format('Y-m-d'),
                 $endDate->format('Y-m-d'),
@@ -61,7 +63,7 @@ class AnalyticsClient
 
                 parse_str(substr($nextLink, strpos($nextLink, '?') + 1), $options);
 
-                $response = $this->service->data_ga->call('get', [$options], 'Google_Service_Analytics_GaData');
+                $response = $this->getAnalyticsService()->data_ga->call('get', [$options], 'Google_Service_Analytics_GaData');
 
                 if ($response->rows) {
                     $result->rows = array_merge($result->rows, $response->rows);
@@ -74,9 +76,28 @@ class AnalyticsClient
         });
     }
 
+    /**
+     * @param string $accessToken
+     */
+    public function setAccessToken(string $accessToken)
+    {
+        $this->googleClient->setAccessToken($accessToken);
+    }
+
+    /**
+     * @return Google_Client
+     */
+    public function getGoogleClient(): Google_Client
+    {
+        return $this->googleClient;
+    }
+
+    /**
+     * @return Google_Service_Analytics
+     */
     public function getAnalyticsService(): Google_Service_Analytics
     {
-        return $this->service;
+        return new Google_Service_Analytics($this->googleClient);
     }
 
     /**
@@ -84,6 +105,6 @@ class AnalyticsClient
      */
     protected function determineCacheName(array $properties): string
     {
-        return 'spatie.laravel-analytics.'.md5(serialize($properties));
+        return 'spatie.laravel-analytics.' . md5(serialize($properties));
     }
 }

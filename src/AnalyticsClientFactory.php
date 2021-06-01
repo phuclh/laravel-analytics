@@ -3,9 +3,9 @@
 namespace Spatie\Analytics;
 
 use Google_Client;
-use Google_Service_Analytics;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
+use Spatie\Analytics\Exceptions\InvalidConfiguration;
 use Symfony\Component\Cache\Adapter\Psr16Adapter;
 
 class AnalyticsClientFactory
@@ -14,21 +14,15 @@ class AnalyticsClientFactory
     {
         $authenticatedClient = self::createAuthenticatedGoogleClient($analyticsConfig);
 
-        $googleService = new Google_Service_Analytics($authenticatedClient);
-
-        return self::createAnalyticsClient($analyticsConfig, $googleService);
+        return self::createAnalyticsClient($analyticsConfig, $authenticatedClient);
     }
 
     public static function createAuthenticatedGoogleClient(array $config): Google_Client
     {
         $client = new Google_Client();
+        $client->setAccessType('offline');
 
-        $client->setScopes([
-            Google_Service_Analytics::ANALYTICS_READONLY,
-        ]);
-
-        $client->setAuthConfig($config['service_account_credentials_json']);
-
+        self::configureAuthentication($client, $config);
         self::configureCache($client, $config['cache']);
 
         return $client;
@@ -49,12 +43,30 @@ class AnalyticsClientFactory
         );
     }
 
-    protected static function createAnalyticsClient(array $analyticsConfig, Google_Service_Analytics $googleService): AnalyticsClient
+    protected static function createAnalyticsClient(array $analyticsConfig, Google_Client $googleClient): AnalyticsClient
     {
-        $client = new AnalyticsClient($googleService, app(Repository::class));
+        $client = new AnalyticsClient($googleClient, app(Repository::class));
 
         $client->setCacheLifeTimeInMinutes($analyticsConfig['cache_lifetime_in_minutes']);
 
         return $client;
+    }
+
+    private static function configureAuthentication(Google_Client $client, $config)
+    {
+        switch ($config['auth_type']):
+            case 'oauth':
+                $client->setClientId($config['connections']['oauth']['client_id']);
+                $client->setClientSecret($config['connections']['oauth']['client_secret']);
+                break;
+            case 'oauth_json':
+                $client->setAuthConfig($config['connections']['oauth_json']['auth_config']);
+                break;
+            case 'service_account':
+                $client->useApplicationDefaultCredentials($config['connections']['service_account']['application_credentials']);
+                break;
+            default:
+                throw InvalidConfiguration::oauthTypeNotSupported();
+        endswitch;
     }
 }
